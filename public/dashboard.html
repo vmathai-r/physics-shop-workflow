@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Physics Machine Shop — Jobs Dashboard</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f5f3f0;color:#1a1a1a;min-height:100vh}
+  header{background:#881C1C;color:#fff;padding:18px 28px;border-bottom:3px solid #c8a951;display:flex;justify-content:space-between;align-items:center}
+  header h1{font-size:18px;font-weight:600}
+  header span{font-size:12px;opacity:.7;font-family:monospace}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:20px 28px 0}
+  .stat{background:#fff;border-radius:4px;padding:14px 18px;border-top:3px solid #881C1C;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#666;font-family:monospace;margin-bottom:4px}
+  .stat-value{font-size:26px;font-weight:700;color:#881C1C;font-family:monospace;line-height:1}
+  .stat-sub{font-size:11px;color:#888;margin-top:3px;font-family:monospace}
+  .wrap{padding:20px 28px 40px}
+  .toolbar{display:flex;gap:10px;margin-bottom:12px;align-items:center}
+  .toolbar input{padding:7px 12px;border:1px solid #ccc;border-radius:4px;font-size:13px;width:220px}
+  .toolbar select{padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px}
+  .toolbar button{padding:7px 16px;background:#881C1C;color:#fff;border:none;border-radius:4px;font-size:12px;font-family:monospace;cursor:pointer;text-transform:uppercase;letter-spacing:.06em}
+  .toolbar .refresh-time{font-size:11px;color:#888;font-family:monospace;margin-left:auto}
+  table{width:100%;border-collapse:collapse;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.08);border-radius:4px;overflow:hidden;font-size:13px}
+  thead tr{background:#881C1C;color:#fff}
+  th{padding:10px 12px;text-align:left;font-family:monospace;font-size:11px;text-transform:uppercase;letter-spacing:.07em;white-space:nowrap;font-weight:500}
+  td{padding:9px 12px;border-bottom:1px solid #ece8e0;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#faf8f5}
+  .status{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-family:monospace;font-weight:500;white-space:nowrap}
+  .s-pending{background:#fef3cd;color:#856404}
+  .s-discussion{background:#cfe2ff;color:#084298}
+  .s-approval{background:#d1ecf1;color:#0c5460}
+  .s-approved{background:#d4edda;color:#155724}
+  .s-clarification{background:#fff3cd;color:#856404}
+  .s-complete{background:#e2e3e5;color:#383d41}
+  .var-pos{color:#8b1c1c;font-weight:600}
+  .var-neg{color:#155724;font-weight:600}
+  .none{color:#bbb;font-style:italic;font-size:12px}
+  .loading{text-align:center;padding:60px;color:#888;font-family:monospace}
+  .error{text-align:center;padding:40px;color:#8b1c1c;font-family:monospace}
+  @media(max-width:700px){.stats{grid-template-columns:1fr 1fr}.wrap{padding:12px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>⚙ Physics &amp; Astronomy Machine Shop — Jobs</h1>
+  <span id="last-update">Loading…</span>
+</header>
+<div class="stats" id="stats"></div>
+<div class="wrap">
+  <div class="toolbar">
+    <input type="text" id="search" placeholder="Search jobs…" oninput="renderTable()">
+    <select id="status-filter" onchange="renderTable()">
+      <option value="">All statuses</option>
+      <option>Pending Shop Review</option>
+      <option>Needs Discussion</option>
+      <option>Pending PI Approval</option>
+      <option>Approved</option>
+      <option>Needs Clarification</option>
+      <option>Complete</option>
+    </select>
+    <button onclick="loadData()">↻ Refresh</button>
+    <span class="refresh-time" id="refresh-note">Auto-refreshes every 2 min</span>
+  </div>
+  <div id="table-area"><div class="loading">Loading jobs…</div></div>
+</div>
+<script>
+const SS_ID = '1m1YONVhj45N-90-JC8dBuMwLaZuhho3i0Y1kznNrO4I';
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/'+SS_ID+'/gviz/tq?tqx=out:csv&sheet=Jobs';
+const HEADERS = ['Job ID','Timestamp','Status','Submitter Name','Submitter Email','Phone','Department','PI Name','PI Email','Job Name','Job Type','Drawings','Stock Notes','Attachments','Start Date','Est Hours','Est Parts','Est Total','Shop Notes','Discussion Notes','Discussion Date','PI Decision','PI Comments','Speedtype','Completed Date','Actual Hours','Actual Parts','Actual Total','Variance'];
+let allJobs = [];
+
+function parseCSV(text) {
+  const rows = [];
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const row = [];
+    let inQ = false, cur = '';
+    for (let c of lines[i]) {
+      if (c === '"') inQ = !inQ;
+      else if (c === ',' && !inQ) { row.push(cur); cur = ''; }
+      else if (c === '\t' && !inQ) { row.push(cur); cur = ''; }
+      else cur += c;
+    }
+    row.push(cur);
+    if (row.some(v => v.trim())) rows.push(row);
+  }
+  return rows;
+}
+
+function statusClass(s) {
+  if (!s) return '';
+  if (s.includes('Pending Shop')) return 's-pending';
+  if (s.includes('Discussion')) return 's-discussion';
+  if (s.includes('PI Approval')) return 's-approval';
+  if (s === 'Approved') return 's-approved';
+  if (s.includes('Clarification')) return 's-clarification';
+  if (s === 'Complete') return 's-complete';
+  return '';
+}
+
+function fmt(v) { return v && v.trim() ? v.trim() : '<span class="none">—</span>'; }
+function fmtMoney(v) { return v ? '$'+Math.round(parseFloat(v)||0).toLocaleString() : '<span class="none">—</span>'; }
+
+function renderStats(jobs) {
+  const counts = {};
+  let estTotal = 0, actTotal = 0, variance = 0, completeCount = 0;
+  jobs.forEach(j => {
+    const s = j[2]||'Unknown';
+    counts[s] = (counts[s]||0)+1;
+    estTotal += parseFloat(j[17])||0;
+    if (j[2]==='Complete') { actTotal += parseFloat(j[27])||0; completeCount++; }
+    variance += parseFloat(j[28])||0;
+  });
+  const total = jobs.length;
+  const pending = (counts['Pending Shop Review']||0)+(counts['Needs Discussion']||0);
+  const approved = (counts['Approved']||0)+(counts['Pending PI Approval']||0);
+  document.getElementById('stats').innerHTML =
+    stat('Total Jobs', total, total===1?'1 job':'all time') +
+    stat('Pending', pending, 'awaiting review/estimate') +
+    stat('Est. Revenue', '$'+Math.round(estTotal).toLocaleString(), 'labor + parts') +
+    stat('Complete', completeCount, completeCount>0 ? 'variance: '+(variance>=0?'+':'')+'$'+Math.round(variance).toLocaleString() : 'no completed jobs');
+}
+
+function stat(l,v,s) {
+  return '<div class="stat"><div class="stat-label">'+l+'</div><div class="stat-value">'+v+'</div><div class="stat-sub">'+s+'</div></div>';
+}
+
+function renderTable() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const sf = document.getElementById('status-filter').value;
+  let jobs = allJobs.filter(j => {
+    if (sf && j[2] !== sf) return false;
+    if (q) return j.join(' ').toLowerCase().includes(q);
+    return true;
+  }).sort((a,b) => (b[1]||'').localeCompare(a[1]||''));
+
+  if (!jobs.length) {
+    document.getElementById('table-area').innerHTML = '<div class="loading">No jobs found.</div>';
+    return;
+  }
+
+  const rows = jobs.map(j => {
+    const estT = parseFloat(j[17])||0;
+    const actT = parseFloat(j[27])||0;
+    const varV = j[28] !== '' && j[28] !== undefined ? parseFloat(j[28]) : null;
+    const varHtml = varV !== null
+      ? '<span class="'+(varV > 0 ? 'var-pos' : 'var-neg')+'">'+(varV>=0?'+':'')+'$'+Math.round(varV).toLocaleString()+'</span>'
+      : '<span class="none">—</span>';
+    return '<tr>'+
+      '<td><strong>'+fmt(j[0])+'</strong></td>'+
+      '<td>'+fmt(j[9])+'</td>'+
+      '<td><span class="status '+statusClass(j[2])+'">'+fmt(j[2])+'</span></td>'+
+      '<td>'+fmt(j[3])+'</td>'+
+      '<td>'+fmt(j[6])+'</td>'+
+      '<td>'+fmt(j[7])+'</td>'+
+      '<td>'+fmt(j[10])+'</td>'+
+      '<td>'+fmtMoney(j[15])+'h × $75</td>'+
+      '<td>'+fmtMoney(j[17])+'</td>'+
+      '<td>'+fmtMoney(j[27])+'</td>'+
+      '<td>'+varHtml+'</td>'+
+      '<td>'+(j[23] ? '<span style="color:#155724;font-family:monospace;font-size:11px">✔ on file</span>' : '<span class="none">—</span>')+'</td>'+
+      '</tr>';
+  }).join('');
+
+  document.getElementById('table-area').innerHTML =
+    '<table><thead><tr>'+
+    ['Job ID','Job Name','Status','Submitter','Dept','PI','Type','Labor','Est Total','Actual','Variance','Speedtype'].map(h=>'<th>'+h+'</th>').join('')+
+    '</tr></thead><tbody>'+rows+'</tbody></table>';
+}
+
+async function loadData() {
+  try {
+    document.getElementById('last-update').textContent = 'Refreshing…';
+    const r = await fetch(CSV_URL + '&t=' + Date.now());
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    const text = await r.text();
+    const rows = parseCSV(text);
+    // Skip header row if it matches
+    allJobs = rows.filter(r => r[0] && r[0] !== 'Job ID');
+    renderStats(allJobs);
+    renderTable();
+    const now = new Date();
+    document.getElementById('last-update').textContent = 'Last updated: '+now.toLocaleTimeString();
+  } catch(e) {
+    document.getElementById('table-area').innerHTML = '<div class="error">Could not load data: '+e.message+'<br><small>Make sure the sheet is published to web.</small></div>';
+    document.getElementById('last-update').textContent = 'Error';
+  }
+}
+
+loadData();
+setInterval(loadData, 120000); // auto-refresh every 2 minutes
+</script>
+</body>
+</html>
