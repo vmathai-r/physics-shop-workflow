@@ -10,7 +10,23 @@ var AT={
   update:async function(id,f){return(await fetch(AT.url()+"/"+id,{method:"PATCH",headers:AT.h(),body:JSON.stringify({fields:f})})).json();},
   find:async function(j){var q=encodeURIComponent("{JobID}=\""+j+"\"");var d=await(await fetch(AT.url()+"?filterByFormula="+q,{headers:AT.h()})).json();return d.records&&d.records[0]?d.records[0]:null;},
   nextId:async function(){var d=await(await fetch(AT.url()+"?fields[]=JobID&sort[0][field]=Timestamp&sort[0][direction]=desc&maxRecords=1",{headers:AT.h()})).json();if(!d.records||!d.records.length)return"JOB-0001";var n=parseInt((d.records[0].fields.JobID||"JOB-0000").replace("JOB-",""))+1;return"JOB-"+String(n).padStart(4,"0");},
-  uploadFile:async function(recordId,file){var fd=new FormData();fd.append("file",file,file.name);fd.append("filename",file.name);fd.append("contentType",file.type||"application/octet-stream");fd.append("fieldName","Attachments");var r=await fetch("https://content.airtable.com/v0/"+AT_BASE+"/"+recordId+"/uploadAttachment",{method:"POST",headers:{Authorization:"Bearer "+AT_TOKEN},body:fd});return r.ok;}
+  uploadFile:async function(recordId,file){
+    // Step 1: Upload to tmpfiles.org to get a public URL
+    var fd=new FormData();fd.append("file",file,file.name);
+    var hr=await fetch("https://tmpfiles.org/api/v1/upload",{method:"POST",body:fd});
+    if(!hr.ok)throw new Error("Host upload failed: "+hr.status);
+    var hd=await hr.json();
+    if(!hd.data||!hd.data.url)throw new Error("No URL returned from host");
+    // Convert view URL to direct download URL
+    var dlUrl=hd.data.url.replace("tmpfiles.org/","tmpfiles.org/dl/");
+    // Step 2: Add URL to Airtable Attachments field
+    var ar=await fetch(AT.url()+"/"+recordId,{
+      method:"PATCH",headers:AT.h(),
+      body:JSON.stringify({fields:{Attachments:[{url:dlUrl,filename:file.name}]}})
+    });
+    if(!ar.ok)throw new Error("Airtable attach failed: "+ar.status);
+    return dlUrl;
+  }
 };
 async function mail(to,subj,msg){try{var r=await fetch("https://api.web3forms.com/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_key:W3F,subject:subj,message:msg,to_email:to,from_name:"Physics Machine Shop"})});return r.ok;}catch(e){return false;}}
 function gv(){var h=window.location.hash||"#intake";var pts=h.slice(1).split("?");var p={};if(pts[1])pts[1].split("&").forEach(function(s){var kv=s.split("=");p[kv[0]]=decodeURIComponent(kv[1]||"");});return{view:pts[0]||"intake",params:p};}
