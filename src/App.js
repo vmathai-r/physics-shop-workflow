@@ -77,25 +77,60 @@ function Dashboard(){
 }
 function IntakeForm(){
   const[f,sF]=useState({nm:"",em:"",ph:"",pn:"",pe:"",dp:"",tp:"",jb:"",dr:"",st:""});
-  const[file,sFile]=useState(null);const[drag,sDrag]=useState(false);
+  const[files,sFiles]=useState([]);const[drag,sDrag]=useState(false);
   const[st2,sSt]=useState(null);const[id,sId]=useState("");
+  const[uploadStatus,sUS]=useState("");
   const fileRef=useRef();
   var s=function(k){return function(e){sF(function(p){var o={...p};o[k]=e.target.value;return o;});};};
-  function onFile(e){var fl=e.target.files&&e.target.files[0];if(fl)sFile(fl);}
-  async function sub(e){e.preventDefault();sSt("s");try{
+  function onFile(e){
+    var fl=e.target.files?Array.from(e.target.files):[];
+    sFiles(function(prev){
+      var names=prev.map(function(f){return f.name;});
+      var newFiles=fl.filter(function(f){return!names.includes(f.name);});
+      return prev.concat(newFiles);
+    });
+  }
+  function removeFile(name){sFiles(function(prev){return prev.filter(function(f){return f.name!==name;});});}
+  async function sub(e){e.preventDefault();sSt("s");sUS("");try{
     var jid=await AT.nextId();sId(jid);
     var rec=await AT.create({JobID:jid,SubmitterName:f.nm,SubmitterEmail:f.em,Phone:f.ph,FacultyName:f.pn,PIEmail:f.pe,Department:f.dp,JobType:f.tp,JobName:f.jb,Drawings:f.dr,Stock:f.st,Status:"Pending Shop Review",Timestamp:new Date().toISOString()});
-    var attachLine="";
-    if(file&&rec.id){
-      var ok=await AT.uploadFile(rec.id,file);
-      attachLine=ok?"\nAttachment: "+file.name+" (view in Airtable: https://airtable.com/"+AT_BASE+"/"+rec.id+")":"\nAttachment upload failed: "+file.name;
+    var attachLines="";
+    if(files.length>0&&rec.id){
+      for(var i=0;i<files.length;i++){
+        var fi=files[i];
+        sUS("Uploading "+(i+1)+"/"+files.length+": "+fi.name+"...");
+        try{
+          // Use FormData directly - most reliable approach
+          var fd=new FormData();
+          fd.append("file",fi,fi.name);
+          fd.append("filename",fi.name);
+          fd.append("contentType",fi.type||"application/octet-stream");
+          fd.append("fieldName","Attachments");
+          var ur=await fetch("https://content.airtable.com/v0/"+AT_BASE+"/"+rec.id+"/uploadAttachment",{
+            method:"POST",headers:{Authorization:"Bearer "+AT_TOKEN},body:fd
+          });
+          if(ur.ok){
+            attachLines+="\n  • "+fi.name+" ("+(fi.size/1024).toFixed(1)+"KB) ✔";
+          } else {
+            var uerr=await ur.text();
+            attachLines+="\n  • "+fi.name+" - upload failed: "+ur.status;
+            console.error("Upload failed for",fi.name,":",uerr);
+          }
+        }catch(ue){
+          attachLines+="\n  • "+fi.name+" - error: "+ue.message;
+          console.error("Upload error for",fi.name,":",ue);
+        }
+        await new Promise(function(x){setTimeout(x,500);});
+      }
     }
+    sUS("");
+    var attachSection=files.length>0?"\n\nAttachments ("+files.length+" file"+(files.length!==1?"s":"")+"):"+attachLines+"\n\nView all attachments in Airtable: https://airtable.com/"+AT_BASE+"/"+rec.id:"";
     var lk=ou()+"/#review?job="+jid;
-    var mg="New job submitted.\n\nJob ID: "+jid+"\nJob: "+f.jb+"\nFrom: "+f.nm+" <"+f.em+">\nPI: "+f.pn+" <"+f.pe+">\nDept: "+f.dp+"\nType: "+f.tp+attachLine+"\n\nEnter your estimate:\n"+lk;
+    var mg="New job submitted.\n\nJob ID: "+jid+"\nJob: "+f.jb+"\nFrom: "+f.nm+" <"+f.em+">\nPI: "+f.pn+" <"+f.pe+">\nDept: "+f.dp+"\nType: "+f.tp+attachSection+"\n\nEnter your estimate:\n"+lk;
     await mail(SHOP,"[New Shop Job] "+jid+": "+f.jb,mg);
     await mail(NOTIFY,"[New Shop Job] "+jid+": "+f.jb,mg);
     sSt("ok");
-  }catch(err){console.error(err);sSt("e");}}
+  }catch(err){console.error(err);sUS("");sSt("e");}}
   if(st2==="ok")return<div className="done"><div className="done-i">📋</div><h2 className="done-t">Job Submitted</h2><div className="bid">{id}</div><p className="done-s">Received. The shop will be in touch.</p></div>;
   return<form onSubmit={sub}>
     <div className="card"><div className="ct">👤 Contact</div>
@@ -111,16 +146,23 @@ function IntakeForm(){
       <div className="fr"><div className="fi"><label>Job type <span className="rq">*</span></label><select required value={f.tp} onChange={s("tp")}><option value="">Select…</option><option>Research</option><option>Physics Teaching Labs</option><option>Physics/Astronomy lecture prep</option><option>Other Dept support</option></select></div><div className="fi"><label>Drawings</label><input value={f.dr} onChange={s("dr")} placeholder="0"/></div></div>
       <div className="fi"><label>Stock / special items</label><textarea value={f.st} onChange={s("st")} rows={3}/></div>
     </div>
-    <div className="card"><div className="ct">📎 Drawings / Attachment (optional)</div>
-      <div className={"upload-area"+(drag?" drag":"")} onDragOver={function(e){e.preventDefault();sDrag(true);}} onDragLeave={function(){sDrag(false);}} onDrop={function(e){e.preventDefault();sDrag(false);var fl=e.dataTransfer.files&&e.dataTransfer.files[0];if(fl)sFile(fl);}} onClick={function(){fileRef.current&&fileRef.current.click();}}>
-        <input type="file" ref={fileRef} onChange={onFile} accept=".pdf,.dxf,.dwg,.png,.jpg,.jpeg,.step,.stl"/>
-        <div className="upload-label">📁 Click or drag to attach a file</div>
-        <div className="hp" style={{marginTop:4}}>PDF, DXF, DWG, PNG, JPG, STEP, STL</div>
-        {file&&<div className="upload-name">✅ {file.name} ({(file.size/1024).toFixed(1)} KB)</div>}
+    <div className="card"><div className="ct">📎 Drawings / Attachments (optional)</div>
+      <div className={"upload-area"+(drag?" drag":"")} onDragOver={function(e){e.preventDefault();sDrag(true);}} onDragLeave={function(){sDrag(false);}} onDrop={function(e){e.preventDefault();sDrag(false);var fl=Array.from(e.dataTransfer.files||[]);sFiles(function(prev){var names=prev.map(function(x){return x.name;});return prev.concat(fl.filter(function(x){return!names.includes(x.name);}));});}} onClick={function(){fileRef.current&&fileRef.current.click();}}>
+        <input type="file" ref={fileRef} onChange={onFile} accept=".pdf,.dxf,.dwg,.png,.jpg,.jpeg,.step,.stl" multiple/>
+        <div className="upload-label">📁 Click or drag to attach files</div>
+        <div className="hp" style={{marginTop:4}}>PDF, DXF, DWG, PNG, JPG, STEP, STL — multiple files OK</div>
       </div>
+      {files.length>0&&<div style={{marginTop:12}}>
+        {files.map(function(fi,i){return<div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 10px",background:"var(--ml)",borderRadius:"var(--r)",marginBottom:4,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
+          <span style={{color:"var(--green)"}}>• {fi.name} <span style={{color:"var(--mu)"}}>({(fi.size/1024).toFixed(1)}KB)</span></span>
+          <span onClick={function(){removeFile(fi.name);}} style={{cursor:"pointer",color:"var(--m)",fontWeight:600,padding:"0 4px"}}>×</span>
+        </div>;})}
+        <div style={{fontSize:12,color:"var(--mu)",fontFamily:"'DM Mono',monospace",marginTop:4}}>{files.length} file{files.length!==1?"s":""} ready to upload</div>
+      </div>}
+      {uploadStatus&&<div style={{marginTop:8,fontSize:12,color:"var(--blue)",fontFamily:"'DM Mono',monospace"}}><span className="sp" style={{borderTopColor:"var(--blue)",borderColor:"rgba(37,99,235,.3)"}}/> {uploadStatus}</div>}
     </div>
     {st2==="e"&&<div className="err">Something went wrong. Please try again.</div>}
-    <button type="submit" className="btn bp" disabled={st2==="s"}>{st2==="s"?<><span className="sp"/> Submitting…</>:"Submit Job Request →"}</button>
+    <button type="submit" className="btn bp" disabled={st2==="s"}>{st2==="s"?<><span className="sp"/> {uploadStatus||"Submitting…"}</>:"Submit Job Request →"}</button>
   </form>;
 }
 function ShopReview(P){
