@@ -8,7 +8,7 @@ var AT={
   h:function(){return{Authorization:"Bearer "+AT_TOKEN,"Content-Type":"application/json"};},
   create:async function(f){return(await fetch(AT.url(),{method:"POST",headers:AT.h(),body:JSON.stringify({fields:f})})).json();},
   update:async function(id,f){return(await fetch(AT.url()+"/"+id,{method:"PATCH",headers:AT.h(),body:JSON.stringify({fields:f})})).json();},
-  find:async function(j){var q=encodeURIComponent('[JobID]="'+j+'"');var d=await(await fetch(AT.url()+"?filterByFormula="+q,{headers:AT.h()})).json();return d.records&&d.records[0]?d.records[0]:null;},
+  find:async function(j){var q=encodeURIComponent('{JobID}="'+j+'"');var d=await(await fetch(AT.url()+"?filterByFormula="+q,{headers:AT.h()})).json();return d.records&&d.records[0]?d.records[0]:null;},
   nextId:async function(){var d=await(await fetch(AT.url()+"?fields[]=JobID&sort[0][field]=Timestamp&sort[0][direction]=desc&maxRecords=1",{headers:AT.h()})).json();if(!d.records||!d.records.length)return"JOB-0001";var n=parseInt((d.records[0].fields.JobID||"JOB-0000").replace("JOB-",""))+1;return"JOB-"+String(n).padStart(4,"0");}
 };
 async function mail(to,subj,msg){var r=await fetch("https://api.web3forms.com/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_key:W3F,subject:subj,message:msg,to_email:to,from_name:"Physics Machine Shop"})});return r.ok;}
