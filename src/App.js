@@ -11,21 +11,23 @@ var AT={
   find:async function(j){var q=encodeURIComponent("{JobID}=\""+j+"\"");var d=await(await fetch(AT.url()+"?filterByFormula="+q,{headers:AT.h()})).json();return d.records&&d.records[0]?d.records[0]:null;},
   nextId:async function(){var d=await(await fetch(AT.url()+"?fields[]=JobID&sort[0][field]=Timestamp&sort[0][direction]=desc&maxRecords=1",{headers:AT.h()})).json();if(!d.records||!d.records.length)return"JOB-0001";var n=parseInt((d.records[0].fields.JobID||"JOB-0000").replace("JOB-",""))+1;return"JOB-"+String(n).padStart(4,"0");},
   uploadFile:async function(recordId,file){
-    // Step 1: Upload to tmpfiles.org to get a public URL
-    var fd=new FormData();fd.append("file",file,file.name);
-    var hr=await fetch("https://tmpfiles.org/api/v1/upload",{method:"POST",body:fd});
-    if(!hr.ok)throw new Error("Host upload failed: "+hr.status);
-    var hd=await hr.json();
-    if(!hd.data||!hd.data.url)throw new Error("No URL returned from host");
-    // Convert view URL to direct download URL
-    var dlUrl=hd.data.url.replace("tmpfiles.org/","tmpfiles.org/dl/");
-    // Step 2: Add URL to Airtable Attachments field
+    // Upload to Cloudinary (permanent free storage)
+    var fd=new FormData();
+    fd.append("file",file,file.name);
+    fd.append("upload_preset","shop_uploads");
+    fd.append("resource_type","raw");
+    var cr=await fetch("https://api.cloudinary.com/v1_1/djjovmhac/raw/upload",{method:"POST",body:fd});
+    if(!cr.ok)throw new Error("Cloudinary upload failed: "+cr.status);
+    var cd=await cr.json();
+    if(!cd.secure_url)throw new Error("No URL from Cloudinary");
+    var fileUrl=cd.secure_url;
+    // Save URL to Airtable Attachments field
     var ar=await fetch(AT.url()+"/"+recordId,{
       method:"PATCH",headers:AT.h(),
-      body:JSON.stringify({fields:{Attachments:[{url:dlUrl,filename:file.name}]}})
+      body:JSON.stringify({fields:{Attachments:[{url:fileUrl,filename:file.name}]}})
     });
     if(!ar.ok)throw new Error("Airtable attach failed: "+ar.status);
-    return dlUrl;
+    return fileUrl;
   }
 };
 async function mail(to,subj,msg){try{var r=await fetch("https://api.web3forms.com/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({access_key:W3F,subject:subj,message:msg,to_email:to,from_name:"Physics Machine Shop"})});return r.ok;}catch(e){return false;}}
